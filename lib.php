@@ -101,13 +101,15 @@ function create_urls($user, $branch = "master", $from = null, $to = null) : arra
 
     $urls = array();
     if (is_null($from) && is_null($to)) {
-        $urls += [get_latest_build_num($user, $branch) => get_latest_build_url($branch)];
+        $max_num = get_latest_build_num($user, $branch);
+        $min_num = $max_num;
+        $urls += [$max_num => get_latest_build_url($branch)];
     } elseif (!is_null($from) xor !is_null($to)) {
         $max_num = get_latest_build_num($user, $branch);
         $min_num = $max_num - 99;
-        if (!is_null($from) && is_null($to)) {
+        if (!is_null($from)) {
             $min_num = $from;
-        } elseif (is_null($from) && !is_null($to)) {
+        } else {
             $max_num = $to;
         }
     } else {

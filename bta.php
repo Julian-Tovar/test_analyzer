@@ -2,11 +2,137 @@
 // Perform the XML file analysis
 
 function parse_behat_xml($branch = "master", $from = null, $to = null) {
-    //$file = "tmp/" . $branch . $add_var_here_please;
-    unzip_file();
+    global $verbose;
+    $dirs_to_parse = unzip_build_files($branch, $from, $to);
+
+    foreach ($dirs_to_parse as $dir) {
+        $xml_files = glob($dir . "/junit_files/*.xml");
+        if ($verbose) {
+            echo "Tests to be parsed in branch: $branch, build: " . pathinfo($dir, PATHINFO_FILENAME) . "\n";
+            foreach ($xml_files as $file) {
+                echo "  " . xml_name_to_test_name($file) . "\n";
+            }
+        }
+
+        foreach ($xml_files as $file) {
+            $reader = new XMLReader();
+            $reader->open($file);
+
+            while ($reader->read()) {
+                if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "testsuite") {
+                    $feature = $reader->getAttribute("name");
+                    while ($reader->read()) {
+                        if ($reader->getAttribute("status") === "failed") {
+                            $failed_scenario = $reader->getAttribute("name");
+                            echo "\nFailure in: " . xml_name_to_test_name($file) . "\n";
+                            echo "  Feature: " . $feature . "\n";
+                            echo "  Scenario: " . $failed_scenario . "\n";
+                            while ($reader->read()) {
+                                if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
+                                    echo "    Cause: \n";
+                                    if ($verbose) {
+                                        echo $reader->readInnerXml();
+                                    } else {
+                                        $whole_fail = $reader->readInnerXml();
+                                        preg_match("/<!\[CDATA\[(.*\n.*\n)/", $whole_fail, $summary);
+                                        echo $summary[1];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-function unzip_file() {
-    // implement unzipping (the resulting dir must have the same name of the zip file,
-    // not the name 'junit_files' that it has by default
+function unzip_file($input_file, $output_file = null): string {
+
+    if (is_null($output_file)) {
+        $output_file = substr($input_file, 0, -4);
+    }
+
+    if (!is_dir($output_file)) {
+        mkdir($output_file);
+    }
+
+    if (!is_file($input_file)) {
+        echo "File not found: $input_file. This may produce Undefined Behavior.\n";
+        echo "Please rerun this script with the --user option.\n";
+        echo "(If the files do exist, please check your permissions)\n";
+        exit(2);
+    }
+
+    if (is_dir($output_file . "/junit_files")) {
+        $files = glob($output_file . "/junit_files/*.xml");
+        if (count($files) > 0) {
+            echo "\nNotice: There are XML files already in $output_file/junit_files.\n";
+            echo "Delete them if you want to re-unzip the file $input_file.\n";
+            echo "Proceeding with the current XML files in $output_file/junit_files.\n\n";
+            return $output_file;
+        }
+    }
+
+    echo "Unzipping file $input_file, this may take a while... ";
+    $zip_name = new ZipArchive();
+    $ziph = $zip_name->open($input_file);
+    if ($ziph === true) {
+        $zip_name->extractTo($output_file);
+        $zip_name->close();
+        echo "Done\n";
+    } else {
+        echo "Notice: This code should never be executed. Please investigate\n";
+        echo __FILE__ . ":" . __LINE__ . "\n";
+        debug_print_backtrace();
+        exit(1);
+    }
+
+    return $output_file;
+}
+
+function unzip_build_files($branch = "master", $from = null, $to = null): array {
+
+    $branch_dir = "tmp/" . $branch;
+    $current_files = glob($branch_dir . "/*.zip");
+    $build_nums = array();
+    $dirs_to_parse = array();
+    foreach ($current_files as $file) {
+        array_push($build_nums, intval(pathinfo($file, PATHINFO_FILENAME)));
+    }
+
+    if (is_null($from) && is_null($to)) {
+        $max_num = max($build_nums);
+        $min_num = $max_num;
+    } elseif (!is_null($from) xor !is_null($to)) {
+        if (!is_null($from)) {
+            $max_num = max($build_nums);
+            $min_num = $from;
+        } else {
+            $max_num = $to;
+            $min_num = min($build_nums);
+        }
+    } else {
+        $min_num = $from;
+        $max_num = $to;
+    }
+    for ($idx = $min_num; $idx <= $max_num; $idx++) {
+        $dir_to_parse = unzip_file($branch_dir . "/" . strval($idx) . ".zip");
+        array_push($dirs_to_parse, $dir_to_parse);
+    }
+
+    return $dirs_to_parse;
+}
+
+function xml_name_to_test_name($xml_name): string {
+
+    $path = pathinfo($xml_name, PATHINFO_FILENAME);
+    preg_match("/^([\w_]+_tests_behat_)([\w_]+)(_feature_\d+)$/", $path, $parts);
+
+    $test_dir = preg_replace("/_/", "/", $parts[1]);
+    $test_file_name = $parts[2];
+    $test_suffix = preg_replace("/_feature_(\d+)/", ".feature:$1", $parts[3]);
+    $test_name = $test_dir . $test_file_name . $test_suffix;
+
+    return $test_name;
 }

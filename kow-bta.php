@@ -8,9 +8,10 @@ require("bta.php");
 
 $sn = $argv[0]; // Script name.
 $args = array_slice($argv, 1);
+$verbose = false;
 
-$help_options = ['--help', '-h', '--usage', '--man'];
-if (!empty(array_intersect($help_options, $args))) {
+$help_flags = ['--help', '-h', '--usage', '--man'];
+if (!empty(array_intersect($help_flags, $args))) {
     print_description();
     exit(0);
 }
@@ -20,8 +21,15 @@ $branch_option = '--branch';
 $from_option = '--from';
 $to_option = '--to';
 
+$verbose_flag = '--verbose';
+
+$other_flags = [$verbose_flag];
 $optargs = [$user_option, $branch_option, $from_option, $to_option];
-$allopts = array_merge($help_options, $optargs);
+$allopts = array_merge($help_flags, $other_flags, $optargs);
+
+if (in_array($verbose_flag, $args)){
+    $verbose = true;
+}
 
 // Check that the used flags or options are supported
 for ($idx = 0; $idx < count($args); $idx++) {
@@ -42,7 +50,7 @@ if ((!is_null($from) && !is_int($from)) || (!is_null($to) && !is_int($to))) {
     echo "These values should correspond to existing builds in Bamboo\n";
     print_help();
     exit(1);
-} elseif ($to <= $from) {
+} elseif (!is_null($from) && !is_null($to) && ($to <= $from)) {
     echo "Error, the value of --from must be strictly less than the value of --to\n";
     print_help();
     exit(1);
