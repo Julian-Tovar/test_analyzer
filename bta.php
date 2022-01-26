@@ -2,8 +2,15 @@
 // Perform the XML file analysis
 
 function parse_behat_xml($branch = "master", $from = null, $to = null) {
-    global $verbose;
+    global $verbose, $csv, $csv_file;
     $dirs_to_parse = unzip_build_files($branch, $from, $to);
+
+    if ($csv) {
+        $csv_fh = fopen($csv_file, "w");
+        $csv_headers = "test_composite_name, test_path, feature_name, scenario_name, execution_time, status, cause,\n";
+        echo "Generating the CSV file $csv_file\n";
+        fwrite($csv_fh, $csv_headers);
+    }
 
     foreach ($dirs_to_parse as $dir) {
         $xml_files = glob($dir . "/junit_files/*.xml");
@@ -22,20 +29,47 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
                 if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "testsuite") {
                     $feature = $reader->getAttribute("name");
                     while ($reader->read()) {
-                        if ($reader->getAttribute("status") === "failed") {
-                            $failed_scenario = $reader->getAttribute("name");
-                            echo "\nFailure in: " . xml_name_to_test_name($file) . "\n";
-                            echo "  Feature: " . $feature . "\n";
-                            echo "  Scenario: " . $failed_scenario . "\n";
-                            while ($reader->read()) {
-                                if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
-                                    echo "    Cause: \n";
-                                    if ($verbose) {
-                                        echo $reader->readInnerXml();
-                                    } else {
+                        if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "testcase") {
+                            $scenario = $reader->getAttribute("name");
+                            $execution_time = $reader->getAttribute("time");
+                            $status = $reader->getAttribute("status");
+                            if ($csv) {
+                                $csv_line = '';
+                                $csv_line = $csv_line . "\"" . $feature . " -> " . $scenario . "\"" . ",";
+                                $csv_line = $csv_line . "\"" . xml_name_to_test_name($file) . "\"" . ",";
+                                $csv_line = $csv_line . "\"" . $feature . "\"" . ",";
+                                $csv_line = $csv_line . "\"" . $scenario . "\"" . ",";
+                                $csv_line = $csv_line . "\"" . $execution_time . "\"" . ",";
+                                $csv_line = $csv_line . "\"" . $status . "\"" . ",";
+                                while ($reader->read()) {
+                                    if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
                                         $whole_fail = $reader->readInnerXml();
                                         preg_match("/<!\[CDATA\[(.*\n.*\n)/", $whole_fail, $summary);
-                                        echo $summary[1];
+                                        $cause = str_replace("\n", " ", $summary[1]);
+                                        $cause = str_replace('"', "'", $cause);
+                                        $csv_line = $csv_line . "\"" . $cause . "\"" . ",";
+                                        break;
+                                    }
+                                }
+                                $csv_line = $csv_line . "\n";
+                                fwrite($csv_fh, $csv_line);
+                            } else {
+                                if ($status === "failed") {
+                                    echo "\nFailure in: " . xml_name_to_test_name($file) . "\n";
+                                    echo "It took $execution_time seconds\n";
+                                    echo "  Feature: " . $feature . "\n";
+                                    echo "  Scenario: " . $scenario . "\n";
+                                    while ($reader->read()) {
+                                        if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
+                                            echo "    Cause: \n";
+                                            if ($verbose) {
+                                                echo $reader->readInnerXml();
+                                            } else {
+                                                $whole_fail = $reader->readInnerXml();
+                                                preg_match("/<!\[CDATA\[(.*\n.*\n)/", $whole_fail, $summary);
+                                                echo $summary[1];
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -45,6 +79,11 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
             }
         }
     }
+
+    if ($csv) {
+        fclose($csv_fh);
+    }
+
 }
 
 function unzip_file($input_file, $output_file = null): string {
@@ -53,15 +92,15 @@ function unzip_file($input_file, $output_file = null): string {
         $output_file = substr($input_file, 0, -4);
     }
 
-    if (!is_dir($output_file)) {
-        mkdir($output_file);
-    }
-
     if (!is_file($input_file)) {
         echo "File not found: $input_file. This may produce Undefined Behavior.\n";
-        echo "Please rerun this script with the --user option.\n";
+        echo "Please rerun this script with the --user option, or skip this build number.\n";
         echo "(If the files do exist, please check your permissions)\n";
         exit(2);
+    }
+
+    if (!is_dir($output_file)) {
+        mkdir($output_file);
     }
 
     if (is_dir($output_file . "/junit_files")) {
@@ -93,7 +132,7 @@ function unzip_file($input_file, $output_file = null): string {
 
 function unzip_build_files($branch = "master", $from = null, $to = null): array {
 
-    $branch_dir = "tmp/" . $branch;
+    $branch_dir = "tmp/" . string_to_legal_string($branch);
     $current_files = glob($branch_dir . "/*.zip");
     $build_nums = array();
     $dirs_to_parse = array();

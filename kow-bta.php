@@ -9,6 +9,9 @@ require("bta.php");
 $sn = $argv[0]; // Script name.
 $args = array_slice($argv, 1);
 $verbose = false;
+$csv = false;
+$csv_file = null;
+global $tmp_dir;
 
 $help_flags = ['--help', '-h', '--usage', '--man'];
 if (!empty(array_intersect($help_flags, $args))) {
@@ -21,9 +24,10 @@ $branch_option = '--branch';
 $from_option = '--from';
 $to_option = '--to';
 
+$csv_flag = '--csv';
 $verbose_flag = '--verbose';
 
-$other_flags = [$verbose_flag];
+$other_flags = [$csv_flag, $verbose_flag];
 $optargs = [$user_option, $branch_option, $from_option, $to_option];
 $allopts = array_merge($help_flags, $other_flags, $optargs);
 
@@ -44,6 +48,12 @@ $user = in_array($user_option, $argv) ? get_value_from_opt($user_option, $argv) 
 $branch = in_array($branch_option, $argv) ? get_value_from_opt($branch_option, $argv) : "master";
 $from = in_array($from_option, $argv) ? intval(get_value_from_opt($from_option, $argv)) : null;
 $to = in_array($to_option, $argv) ? intval(get_value_from_opt($to_option, $argv)) : null;
+if (in_array($csv_flag, $argv)) {
+    $from_extra = !is_null($from) ? "_" . $from : '';
+    $to_extra = !is_null($to) ? "_" . $to : '';
+    $csv_file = $tmp_dir . string_to_legal_string($branch) . $from_extra . $to_extra . ".csv";
+    $csv = true;
+}
 
 if ((!is_null($from) && !is_int($from)) || (!is_null($to) && !is_int($to))) {
     echo "Error: the options --from and --to must have integer values.\n";

@@ -3,6 +3,7 @@
 
 $base_url = "https://bamboo.mroomstech.com/artifact/DEV-MOOB";
 $psphr1 = null;
+$tmp_dir = "tmp/";
 
 function get_latest_build_url($branch = "master"): ?string {
     global $base_url;
@@ -30,6 +31,7 @@ function get_latest_build_url($branch = "master"): ?string {
 }
 
 function get_latest_build_num($user, $branch = "master"): string {
+    global $tmp_dir;
 
     switch ($branch) {
         case "3.11":
@@ -55,10 +57,10 @@ function get_latest_build_num($user, $branch = "master"): string {
     }
 
     if (!is_null($download_url)) {
-        download_file($user, $download_url, 'tmp/latest.html');
+        download_file($user, $download_url, $tmp_dir . "latest.html");
     }
 
-    $latest = fopen("tmp/latest.html", "r");
+    $latest = fopen($tmp_dir . "latest.html", "r");
     if (!is_null($pattern)) {
         while (($line = fgets($latest)) !== false) {
             preg_match($pattern, $line, $matches);
@@ -141,6 +143,8 @@ function create_urls($user, $branch = "master", $from = null, $to = null) : arra
     // branch 3.11+2
     // https://bamboo.mroomstech.com/artifact/DEV-MOOB32/JOB1/build-1/Behat-Failed-Dump/junit_files.zip
     // https://bamboo.mroomstech.com/artifact/DEV-MOOB32/JOB1/build-latest/Behat-Failed-Dump/junit_files.zip
+
+    // failure example: junit_files/enrol_meta_tests_behat_enrol_meta_feature_82.xml
 }
 
 function create_url_with_num($num, $branch = "master"): string {
@@ -169,18 +173,20 @@ function create_url_with_num($num, $branch = "master"): string {
 }
 
 function download_test_results($user, $branch = "master", $from = null, $to = null, $dir_suffix = null) {
-    global $psphr1;
+    global $psphr1, $tmp_dir;
+
     if (is_null($psphr1)) {
         authenticate_user($user);
     }
 
     echo "\nInitiating file download, please be patient\n";
+    echo "If you get a timeout error, please check your VPN connection\n\n";
 
     $urls = create_urls($user, $branch, $from, $to);
     $idxs = array_keys($urls);
     $min_num = $idxs[0];
     $max_num = end($idxs);
-    $branch_dir = "tmp/" . string_to_legal_string($branch);
+    $branch_dir = $tmp_dir . string_to_legal_string($branch);
     $branch_dir = is_null($dir_suffix) ? $branch_dir . "/" : $branch_dir . $dir_suffix . "/";
     if (!is_dir($branch_dir)) {
         mkdir($branch_dir, 0775, true);
@@ -193,12 +199,13 @@ function download_test_results($user, $branch = "master", $from = null, $to = nu
             unlink($file);
         }
         echo "Downloading file: $file... ";
-        download_file($user, $url, $file);
-        echo "Done\n";
+        if (download_file($user, $url, $file)) {
+            echo "Done\n";
+        }
     }
 }
 
-function download_file($user, $url, $output_file) {
+function download_file($user, $url, $output_file): bool {
     global $psphr1;
     if (is_null($psphr1)) {
         authenticate_user($user);
@@ -212,10 +219,12 @@ function download_file($user, $url, $output_file) {
 
     $fh = fopen($output_file, "w"); // File handle.
     $usp = $user . ":" . base64_decode($psphr1);
+    $timeout = 60;
 
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // The same as -L.
     curl_setopt($ch, CURLOPT_FAILONERROR, true); // The same as --fail.
     curl_setopt($ch, CURLOPT_USERPWD, $usp); // The same as --user in cURL.
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
 
     curl_setopt($ch, CURLOPT_FILE, $fh);
 
@@ -225,9 +234,13 @@ function download_file($user, $url, $output_file) {
     if(curl_error($ch)) {
         echo "There was a cURL error:\n";
         echo curl_error($ch) . "\n";
+        echo "The file $output_file was not downloaded\n\n";
+        unlink($output_file);
+        return false;
     }
     curl_close($ch);
     fclose($fh);
+    return true;
 }
 
 function authenticate_user($user) {
@@ -257,7 +270,9 @@ Description:
     This script facilitates the realization of time series analysis and cross
     sectional analysis of the results of Behat tests. It operates over the
     standard XML output files that come as one of the artifacts from executing
-    a Behat test suite.
+    a Behat test suite, in order to produce console output or CSV output files
+    which can then be used to perform said analyses of the results of Behat
+    tests.
 
     If you are unsure about whether or not an XML file can be processed by this
     script, open that file, it should follow this structure:
