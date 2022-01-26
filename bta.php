@@ -166,12 +166,17 @@ function unzip_build_files($branch = "master", $from = null, $to = null): array 
 function xml_name_to_test_name($xml_name): string {
 
     $path = pathinfo($xml_name, PATHINFO_FILENAME);
-    preg_match("/^([\w_]+_tests_behat_)([\w_]+)(_feature_\d+)$/", $path, $parts);
+    preg_match("/^([\w_]+)(_tests_behat_)([\w_]+)(_feature_\d+)$/", $path, $parts);
 
-    $test_dir = preg_replace("/_/", "/", $parts[1]);
-    $test_file_name = $parts[2];
-    $test_suffix = preg_replace("/_feature_(\d+)/", ".feature:$1", $parts[3]);
-    $test_name = $test_dir . $test_file_name . $test_suffix;
+    $dir = $parts[1];
+    if (substr($dir, 0, 7) === "blocks_") {
+        $dir = preg_replace("/_/", "/", $dir, 1);
+    } else {
+        $dir = preg_replace("/_/", "/", $dir);
+    }
+    $behat_dir = preg_replace("/_/", "/", $parts[2]);
+    $test_file_name = $parts[3];
+    $test_suffix = preg_replace("/_feature_(\d+)/", ".feature:$1", $parts[4]);
 
-    return $test_name;
+    return $dir . $behat_dir . $test_file_name . $test_suffix;
 }
