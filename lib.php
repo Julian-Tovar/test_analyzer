@@ -61,6 +61,12 @@ function get_latest_build_num($user, $branch = "master"): string {
     }
 
     $latest = fopen($tmp_dir . "latest.html", "r");
+    if (!$latest) {
+        echo "Fatal error: The number of the latest build could not be retrieved.\n";
+        echo "Check your password, or try using the --to option, to set this number manually.\n";
+        exit(1);
+    }
+
     if (!is_null($pattern)) {
         while (($line = fgets($latest)) !== false) {
             preg_match($pattern, $line, $matches);
@@ -180,7 +186,7 @@ function download_test_results($user, $branch = "master", $from = null, $to = nu
     }
 
     echo "\nInitiating file download, please be patient\n";
-    echo "If you get a timeout error, please check your VPN connection\n\n";
+    echo "If you get an error, please check your VPN connection, your password, and login using the GUI in Bamboo\n\n";
 
     $urls = create_urls($user, $branch, $from, $to);
     $idxs = array_keys($urls);
@@ -195,12 +201,11 @@ function download_test_results($user, $branch = "master", $from = null, $to = nu
     for ($idx = $min_num; $idx <= $max_num; $idx++) {
         $url = $urls[strval($idx)];
         $file = $branch_dir . $idx . ".zip";
-        if (file_exists($file)) {
-            unlink($file);
-        }
         echo "Downloading file: $file... ";
-        if (download_file($user, $url, $file)) {
-            echo "Done\n";
+        if (file_exists($file)) {
+            echo "This file already exists, delete it to download it again\n\n";
+        } elseif (download_file($user, $url, $file)) {
+            echo "Done\n\n";
         }
     }
 }
@@ -319,7 +324,10 @@ Description:
     already have those files). For this, simply do not use the --user option.
     If your files are named according to branches, from, and to numbers, you
     can use the options --branch, --from, and --to, accordingly.
-
+    
+    The --csv flag produces a CSV file with the results. The --show-all flag
+    shows all tests, both failing and passing tests (by default, only failing
+    tests are shown).
 
 EOT;
 

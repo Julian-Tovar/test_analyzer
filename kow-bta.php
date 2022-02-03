@@ -11,6 +11,7 @@ $args = array_slice($argv, 1);
 $verbose = false;
 $csv = false;
 $csv_file = null;
+$show_all = false;
 global $tmp_dir;
 
 $help_flags = ['--help', '-h', '--usage', '--man'];
@@ -26,8 +27,9 @@ $to_option = '--to';
 
 $csv_flag = '--csv';
 $verbose_flag = '--verbose';
+$show_all_flag = '--show-all';
 
-$other_flags = [$csv_flag, $verbose_flag];
+$other_flags = [$csv_flag, $verbose_flag, $show_all_flag];
 $optargs = [$user_option, $branch_option, $from_option, $to_option];
 $allopts = array_merge($help_flags, $other_flags, $optargs);
 
@@ -51,9 +53,14 @@ $to = in_array($to_option, $argv) ? intval(get_value_from_opt($to_option, $argv)
 if (in_array($csv_flag, $argv)) {
     $from_extra = !is_null($from) ? "_" . $from : '';
     $to_extra = !is_null($to) ? "_" . $to : '';
-    $csv_file = $tmp_dir . string_to_legal_string($branch) . $from_extra . $to_extra . ".csv";
+    if ($from_extra === $to_extra) {
+        $csv_file = $tmp_dir . string_to_legal_string($branch) . $to_extra . ".csv";
+    } else {
+        $csv_file = $tmp_dir . string_to_legal_string($branch) . $from_extra . $to_extra . ".csv";
+    }
     $csv = true;
 }
+$show_all = in_array($show_all_flag, $argv);
 
 if ((!is_null($from) && !is_int($from)) || (!is_null($to) && !is_int($to))) {
     echo "Error: the options --from and --to must have integer values.\n";

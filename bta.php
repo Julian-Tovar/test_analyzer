@@ -1,17 +1,45 @@
 <?php
 // Perform the XML file analysis
 
+require("classes/BehatTest.php");
+
+use bta\BehatTest as BehatTest;
+
 function parse_behat_xml($branch = "master", $from = null, $to = null) {
-    global $verbose, $csv, $csv_file;
+    global $verbose, $tmp_dir, $csv, $csv_file, $show_all;
     $dirs_to_parse = unzip_build_files($branch, $from, $to);
+    $builds = array();
+    $tests = array();
+    $paths = array();
+    foreach ($dirs_to_parse as $dir) {
+        preg_match("/(\d+)$/", $dir, $match);
+        array_push($builds, $match[1]);
+    }
 
     if ($csv) {
+        if (is_null($from) && is_null($to)) {
+            $from_build = max_build_num($branch);
+            $to_build = $from_build;
+            $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $to_build . ".csv";
+        } elseif (is_null($from) && !is_null($to)) {
+            $from_build = min_build_num($branch);
+            $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $from_build . "_" . $to . ".csv";
+        } elseif (!is_null($from) && is_null($to)) {
+            $to_build = max_build_num($branch);
+            $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $from . "_" . $to_build . ".csv";
+        }
+
         $csv_fh = fopen($csv_file, "w");
-        $csv_headers = "test_composite_name, test_path, feature_name, scenario_name, execution_time, status, cause,\n";
+        $csv_headers = "test_composite_name,test_path,feature_name,scenario_name,";
+        foreach ($builds as $idx) {
+            $csv_headers .= "execution_time_$idx,status_$idx,cause_$idx,";
+        }
+        $csv_headers .= "\n";
         echo "Generating the CSV file $csv_file\n";
         fwrite($csv_fh, $csv_headers);
     }
 
+    BehatTest::$total_builds = count($dirs_to_parse);
     foreach ($dirs_to_parse as $dir) {
         $xml_files = glob($dir . "/junit_files/*.xml");
         if ($verbose) {
@@ -21,38 +49,71 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
             }
         }
 
+        preg_match("/(\d+)$/", $dir, $match);
+        $build_num = $match[1];
+        $relative_build_num = array_search($build_num, $builds);
         foreach ($xml_files as $file) {
+            $cause = '';
+            $path = xml_name_to_test_name($file);
             $reader = new XMLReader();
             $reader->open($file);
 
             while ($reader->read()) {
                 if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "testsuite") {
                     $feature = $reader->getAttribute("name");
+                    $feature = str_replace('"', "'", $feature);
                     while ($reader->read()) {
                         if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "testcase") {
-                            $scenario = $reader->getAttribute("name");
+                            $scenario = str_replace('"', "'", $reader->getAttribute("name"));
                             $execution_time = $reader->getAttribute("time");
                             $status = $reader->getAttribute("status");
                             if ($csv) {
-                                $csv_line = '';
-                                $csv_line = $csv_line . "\"" . $feature . " -> " . $scenario . "\"" . ",";
-                                $csv_line = $csv_line . "\"" . xml_name_to_test_name($file) . "\"" . ",";
-                                $csv_line = $csv_line . "\"" . $feature . "\"" . ",";
-                                $csv_line = $csv_line . "\"" . $scenario . "\"" . ",";
-                                $csv_line = $csv_line . "\"" . $execution_time . "\"" . ",";
-                                $csv_line = $csv_line . "\"" . $status . "\"" . ",";
+                                if (!$show_all && $status !== "failed") {
+                                    if (in_array($path, $paths)) {
+                                        $test = $tests[array_search($path, $paths)];
+                                        $build_diff = $relative_build_num - ($test->get_build_count() - 1);
+                                        if ($build_diff != 0) {
+                                            for ($idx = 0; $idx < $build_diff; $idx++) {
+                                                $test->increase_build_count();
+                                                $test->append_to_execution_times('');
+                                                $test->append_to_statuses('passed');
+                                                $test->append_to_causes('');
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
                                 while ($reader->read()) {
                                     if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
                                         $whole_fail = $reader->readInnerXml();
                                         preg_match("/<!\[CDATA\[(.*\n.*\n)/", $whole_fail, $summary);
                                         $cause = str_replace("\n", " ", $summary[1]);
                                         $cause = str_replace('"', "'", $cause);
-                                        $csv_line = $csv_line . "\"" . $cause . "\"" . ",";
                                         break;
                                     }
                                 }
-                                $csv_line = $csv_line . "\n";
-                                fwrite($csv_fh, $csv_line);
+                                if (!in_array($path, $paths)) {
+                                    $test = new BehatTest($feature, $scenario, $path);
+                                    $test->increase_build_count();
+                                    if ($relative_build_num > 0) {
+                                        for ($idx = 0; $idx < $relative_build_num; $idx++) {
+                                            $test->append_to_execution_times('');
+                                            $test->append_to_statuses('passed');
+                                            $test->append_to_causes('');
+                                        }
+                                    }
+                                    $test->append_to_execution_times($execution_time);
+                                    $test->append_to_statuses($status);
+                                    $test->append_to_causes($cause);
+                                    array_push($tests, $test);
+                                    array_push($paths, $path);
+                                } else {
+                                    $test = $tests[array_search($path, $paths)];
+                                    $test->increase_build_count();
+                                    $test->append_to_execution_times($execution_time);
+                                    $test->append_to_statuses($status);
+                                    $test->append_to_causes($cause);
+                                }
                             } else {
                                 if ($status === "failed") {
                                     echo "\nFailure in: " . xml_name_to_test_name($file) . "\n";
@@ -81,22 +142,23 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
     }
 
     if ($csv) {
+        foreach ($tests as $test) {
+            $csv_line = $test->write_test_as_csv();
+            fwrite($csv_fh, $csv_line);
+        }
         fclose($csv_fh);
     }
-
 }
 
-function unzip_file($input_file, $output_file = null): string {
+function unzip_file($input_file, $output_file = null): ?string {
 
     if (is_null($output_file)) {
         $output_file = substr($input_file, 0, -4);
     }
 
     if (!is_file($input_file)) {
-        echo "File not found: $input_file. This may produce Undefined Behavior.\n";
-        echo "Please rerun this script with the --user option, or skip this build number.\n";
-        echo "(If the files do exist, please check your permissions)\n";
-        exit(2);
+        echo "File not found: $input_file. Skipping. If you think this is an error, rerun with --user\n\n";
+        return null;
     }
 
     if (!is_dir($output_file)) {
@@ -106,9 +168,8 @@ function unzip_file($input_file, $output_file = null): string {
     if (is_dir($output_file . "/junit_files")) {
         $files = glob($output_file . "/junit_files/*.xml");
         if (count($files) > 0) {
-            echo "\nNotice: There are XML files already in $output_file/junit_files.\n";
-            echo "Delete them if you want to re-unzip the file $input_file.\n";
-            echo "Proceeding with the current XML files in $output_file/junit_files.\n\n";
+            echo "Notice: There are XML files in $output_file/junit_files, proceeding with those.\n";
+            echo "Delete them if you want to re-unzip the file $input_file.\n\n";
             return $output_file;
         }
     }
@@ -156,7 +217,10 @@ function unzip_build_files($branch = "master", $from = null, $to = null): array 
         $max_num = $to;
     }
     for ($idx = $min_num; $idx <= $max_num; $idx++) {
-        $dir_to_parse = unzip_file($branch_dir . "/" . strval($idx) . ".zip");
+        $dir_to_parse = unzip_file($branch_dir . "/" . $idx . ".zip");
+        if (is_null($dir_to_parse)) {
+            continue;
+        }
         array_push($dirs_to_parse, $dir_to_parse);
     }
 
@@ -179,4 +243,26 @@ function xml_name_to_test_name($xml_name): string {
     $test_suffix = preg_replace("/_feature_(\d+)/", ".feature:$1", $parts[4]);
 
     return $dir . $behat_dir . $test_file_name . $test_suffix;
+}
+
+function max_build_num($branch = "master"): int {
+    $branch_dir = "tmp/" . string_to_legal_string($branch);
+    $current_files = glob($branch_dir . "/*.zip");
+    $build_nums = array();
+    foreach ($current_files as $file) {
+        array_push($build_nums, intval(pathinfo($file, PATHINFO_FILENAME)));
+    }
+
+    return max($build_nums);
+}
+
+function min_build_num($branch = "master"): int {
+    $branch_dir = "tmp/" . string_to_legal_string($branch);
+    $current_files = glob($branch_dir . "/*.zip");
+    $build_nums = array();
+    foreach ($current_files as $file) {
+        array_push($build_nums, intval(pathinfo($file, PATHINFO_FILENAME)));
+    }
+
+    return min($build_nums);
 }
