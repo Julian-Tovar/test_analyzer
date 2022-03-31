@@ -6,7 +6,7 @@ require("classes/BehatTest.php");
 use bta\BehatTest as BehatTest;
 
 function parse_behat_xml($branch = "master", $from = null, $to = null) {
-    global $verbose, $tmp_dir, $csv, $csv_file, $show_all;
+    global $verbose, $tmp_dir, $csv, $csv_file, $urls_file, $show_all;
     $dirs_to_parse = unzip_build_files($branch, $from, $to);
     $builds = array();
     $tests = array();
@@ -21,12 +21,15 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
             $from_build = max_build_num($branch);
             $to_build = $from_build;
             $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $to_build . ".csv";
+            $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . "_" . $to_build . ".csv";
         } elseif (is_null($from) && !is_null($to)) {
             $from_build = min_build_num($branch);
             $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $from_build . "_" . $to . ".csv";
+            $urls_file =  $tmp_dir . "urls_" . string_to_legal_string($branch) . "_" . $from_build . "_" . $to . ".csv";
         } elseif (!is_null($from) && is_null($to)) {
             $to_build = max_build_num($branch);
             $csv_file = $tmp_dir . string_to_legal_string($branch) . "_" . $from . "_" . $to_build . ".csv";
+            $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . "_" . $from . "_" . $to_build . ".csv";
         }
 
         $csv_fh = fopen($csv_file, "w");
@@ -34,6 +37,15 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
         foreach ($builds as $idx) {
             $csv_headers .= "execution_time_$idx,status_$idx,cause_$idx,";
         }
+
+        if (!file_exists($urls_file)) {
+            echo "Notice: Proceeding without build URLs and dates. Rerun with --user if you need them\n";
+        } else {
+            $urls_fh = fopen($urls_file, "r");
+            $csv_headers .= fgets($urls_fh);
+            fclose($urls_fh);
+        }
+
         $csv_headers .= "\n";
         echo "Generating the CSV file $csv_file\n";
         fwrite($csv_fh, $csv_headers);
@@ -86,7 +98,8 @@ function parse_behat_xml($branch = "master", $from = null, $to = null) {
                                 while ($reader->read()) {
                                     if ($reader->nodeType == XMLReader::ELEMENT && $reader->name === "failure") {
                                         $whole_fail = $reader->readInnerXml();
-                                        preg_match("/<!\[CDATA\[(.*\n.*\n)/", $whole_fail, $summary);
+                                        preg_match("/<!\[CDATA\[(.*)/", $whole_fail, $summary);
+                                        if (count($summary) < 2) {echo "file is $file";}
                                         $cause = str_replace("\n", " ", $summary[1]);
                                         $cause = str_replace('"', "'", $cause);
                                         break;

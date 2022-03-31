@@ -114,7 +114,7 @@ function create_urls($user, $branch = "master", $from = null, $to = null) : arra
         $urls += [$max_num => get_latest_build_url($branch)];
     } elseif (!is_null($from) xor !is_null($to)) {
         $max_num = get_latest_build_num($user, $branch);
-        $min_num = $max_num - 99;
+        $min_num = $max_num >= 100 ? $max_num - 99 : 1;
         if (!is_null($from)) {
             $min_num = $from;
         } else {
@@ -153,6 +153,80 @@ function create_urls($user, $branch = "master", $from = null, $to = null) : arra
     // failure example: junit_files/enrol_meta_tests_behat_enrol_meta_feature_82.xml
 }
 
+function create_urls_and_dates($user, $branch = "master", $from = null, $to = null) : void {
+    global $tmp_dir;
+
+    $url = "https://bamboo.mroomstech.com/browse/DEV-MOOB";
+    switch ($branch) {
+        case "3.11":
+            $url = $url . "30-";
+            break;
+        case "3.11+1":
+            $url = $url . "31-";
+            break;
+        case "3.11+2":
+            $url = $url . "32-";
+            break;
+        case "master":
+            $url = $url . "-";
+            break;
+        default:
+            $url = null;
+            break;
+    }
+
+    if (is_null($from) && is_null($to)) {
+        $to = get_latest_build_num($user, $branch);
+        $from = $to;
+    } elseif (!is_null($from) xor !is_null($to)) {
+        $max_num = get_latest_build_num($user, $branch);
+        $min_num = $max_num >= 100 ? $max_num - 99 : 1;
+        if (!is_null($from)) {
+            $to = $max_num;
+        } else {
+            $from = $min_num;
+        }
+    }
+
+    if ($from != $to) {
+        $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . "_" . $from . "_" . $to . ".csv";
+    } else {
+        $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . "_" . $to . ".csv";
+    }
+    $fh1 = fopen($urls_file, "w");
+    $line = '';
+    $pattern = "/<time datetime=\"(.*?)\"/";
+    for ($idx = $from; $idx <= $to; $idx++) {
+        $tmp_file = $tmp_dir . "build_" . $idx . ".html";
+        echo "Downloading temp file: $tmp_file... ";
+        if (download_file($user, $url . $idx, $tmp_file)) {
+            echo "Done\n\n";
+        } else {
+            echo "The build #$idx does not exist, skipping\n";
+        }
+
+        $tmp_fh = fopen($tmp_file, "r");
+        while (($tmp_line = fgets($tmp_fh)) !== false) {
+            preg_match("/<span>did not complete/", $tmp_line, $not_complete);
+            if (!empty($not_complete)) {
+                break;
+            }
+
+            preg_match($pattern, $tmp_line, $matches);
+            if (isset($matches[1])) {
+                $line .= '"' . $url . $idx . '"' . ",";
+                $line .= '"' . $matches[1] . '"' . ",";
+                break;
+            }
+        }
+        fclose($tmp_fh);
+        unlink($tmp_file);
+    }
+    echo "Generating file $urls_file\n\n";
+    fwrite($fh1, $line);
+    fclose($fh1);
+}
+
 function create_url_with_num($num, $branch = "master"): string {
     global $base_url;
     $url = $base_url;
@@ -189,6 +263,7 @@ function download_test_results($user, $branch = "master", $from = null, $to = nu
     echo "If you get an error, please check your VPN connection, your password, and login using the GUI in Bamboo\n\n";
 
     $urls = create_urls($user, $branch, $from, $to);
+    create_urls_and_dates($user, $branch, $from, $to);
     $idxs = array_keys($urls);
     $min_num = $idxs[0];
     $max_num = end($idxs);

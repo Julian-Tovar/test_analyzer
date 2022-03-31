@@ -11,6 +11,7 @@ $args = array_slice($argv, 1);
 $verbose = false;
 $csv = false;
 $csv_file = null;
+$urls_file = null;
 $show_all = false;
 global $tmp_dir;
 
@@ -55,8 +56,10 @@ if (in_array($csv_flag, $argv)) {
     $to_extra = !is_null($to) ? "_" . $to : '';
     if ($from_extra === $to_extra) {
         $csv_file = $tmp_dir . string_to_legal_string($branch) . $to_extra . ".csv";
+        $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . $to_extra . ".csv";
     } else {
         $csv_file = $tmp_dir . string_to_legal_string($branch) . $from_extra . $to_extra . ".csv";
+        $urls_file = $tmp_dir . "urls_" . string_to_legal_string($branch) . $from_extra . $to_extra . ".csv";
     }
     $csv = true;
 }
@@ -67,8 +70,8 @@ if ((!is_null($from) && !is_int($from)) || (!is_null($to) && !is_int($to))) {
     echo "These values should correspond to existing builds in Bamboo\n";
     print_help();
     exit(1);
-} elseif (!is_null($from) && !is_null($to) && ($to <= $from)) {
-    echo "Error, the value of --from must be strictly less than the value of --to\n";
+} elseif (!is_null($from) && !is_null($to) && ($to < $from)) {
+    echo "Error, the value of --from must be less than or equal to the value of --to\n";
     print_help();
     exit(1);
 }
